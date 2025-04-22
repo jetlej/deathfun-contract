@@ -1,97 +1,31 @@
-# Smart Contract Accounts with Viem
+Death Race is a high-stakes web-based gambling game where players navigate through a grid of tiles, making strategic choices to maximize their potential winnings while risking their initial bet. The game combines elements of risk management, probability, and quick decision-making in a visually engaging format.
 
-Build and deploy a [smart contract wallet](https://docs.abs.xyz/how-abstract-works/native-account-abstraction/smart-contract-wallets) that can validate and execute transactions with arbitrary logic on Abstract using [viem](https://docs.abs.xyz/build-on-abstract/applications/viem).
+### Core Game Mechanics
 
-## Local Development
+- Players start with an initial wallet amount (default: 1000) and place a bet
+- Game board consists of rows of different numbers of tiles
+- Each row contains one 'death tile' that ends the game and causes bet loss
+- Each row has a base multiplier that increases as you progress upward
+- Players must select one tile per row to progress upward
+- Base multiplier for each row is calculated as: 1 / (1 - death_probability)
+  - With 5 tiles per row and 1 death tile, base multiplier is 1 / (1 - 0.2) = 1.25x
+  - This represents the fair multiplier based on probability
+- Cumulative multiplier for each row is the product of all previous row multipliers
+  - Row 1: 1.25x
+  - Row 2: 1.25 × 1.25 = 1.5625x
+  - Row 3: 1.5625 × 1.25 = 1.953125x
+  - And so on...
+- Current potential winnings are calculated as: initial_bet × current_cumulative_multiplier
+- There is a 2.5% house edge / fee applied to the multiplier before payout, so the final calc is actually multiplier \* .975
+- Players can "cash out" at any time to secure their current winnings
+- If a death tile is hit before cashing out, player loses their entire initial bet
 
-1. Get a copy of the `smart-contract-accounts-viem` example directory from the Abstract Examples repository:
+## Probably Fair System (see provably-fair.js)
 
-   ```bash
-   mkdir -p smart-contract-accounts-viem && curl -L https://codeload.github.com/Abstract-Foundation/examples/tar.gz/main | tar -xz --strip=2 -C smart-contract-accounts-viem examples-main/smart-contract-accounts-viem && cd smart-contract-accounts-viem
-   ```
+This game is designed such that all randomness is determined before the game begins, and stored on chain as a SHA256 hash. After the game is over, the fields in the hash are added to the game struct in the smart contract so they can verify the hash is valid, and the death tiles were not changed.
 
-2. Install dependencies.
-
-   ```bash
-   yarn
-   ```
-
-3. Use [Hardhat](https://hardhat.org/) to run `yarn compile` and compile the `BasicAccount` smart contract.
-
-## Deploy & Use the Smart Contract Wallet
-
-To demo the code, deploy and submit a transaction from the smart contract wallet, by:
-
-1. Compiling the contracts.
-
-   ```bash
-   yarn compile
-   ```
-
-2. Create a new [Hardhat configuration variable](https://hardhat.org/hardhat-runner/docs/guides/configuration-variables) for your wallet private key.
-
-   When prompted, enter the private key of the wallet you want to use to deploy the contract.
-   It is strongly recommended to use a new wallet for this purpose.
-
-   ```bash
-   npx hardhat vars set WALLET_PRIVATE_KEY
-   ```
-
-3. Deploy the `BasicAccount` contract.
-
-   The `defaultNetwork` inside [hardhat.config.ts](./hardhat.config.ts) is set to `abstractTestnet`. You will need [testnet ETH from a faucet](https://docs.abs.xyz/ecosystem/faucets) in your wallet to deploy the contract to Abstract.
-
-   ```bash
-   yarn deploy
-   ```
-
-4. Take the outputted `Contract address` and paste it on line `12` of the [interact.ts](./deploy/interact.ts) file:
-
-   ```typescript
-   const CONTRACT_ADDRESS = "<your-deployed-contract-address-here>";
-   ```
-
-5. Interact with the deployed contract.
-
-   ```bash
-   yarn interact
-   ```
-
-   This will submit a transaction that originates from your deployed smart contract account.
-
-## Using a local node with Docker
-
-1. Install the ZKsync CLI
-
-   ```bash
-   yarn global add zksync-cli
-   ```
-
-2. For local development, ensure [Docker](https://docs.docker.com/get-docker/) is installed and running.
-
-   ```bash
-   docker --version
-   docker info
-   ```
-
-3. For local development, run an "In Memory node".
-
-   ```bash
-   zksync-cli dev start
-   ```
-
-4. Set the hardhat default network to `inMemoryNode` in [hardhat.config.ts](./hardhat.config.ts).
-
-   ```typescript
-   defaultNetwork: "inMemoryNode",
-   ```
-
-5. Use the `RICH_WALLETS` array available in the [utils.ts](./deploy/utils.ts) file to access accounts loaded with funds on the local node.
-
-## Useful Links
-
-- [Docs](https://docs.abs.xyz/)
-- [Official Site](https://abs.xyz/)
-- [GitHub](https://github.com/Abstract-Foundation)
-- [X](https://x.com/AbstractChain)
-- [Discord](https://discord.com/invite/abstractchain)
+1. Players select the number of tiles they want in each row (shorter rows = higher risk & higher reward)
+2. Upon placing a bet, a seed is randomly generated that determines death tile index
+3. We create a hash of the seed, rows & the algoVersion (the version of the seed -> death tile locations algo, in case we change this in the future), and include that hash in the game creation event on-chain, as well as the algoVersion and rows 
+4. After the game ends, either by the user cashing out of hitting a death tile, we update the smart contract with the gameSeed
+5. While all of this will be available on-chain, we will also provide an open-source front-end that allows users to easily verify the hash & game details
