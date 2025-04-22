@@ -1,3 +1,5 @@
+<img width="913" alt="Screenshot 2025-04-22 at 11 10 37 AM" src="https://github.com/user-attachments/assets/82ec8157-0ddb-4e7d-b566-f374261f89b4" />
+
 Death Race is a high-stakes web-based gambling game where players navigate through a grid of tiles, making strategic choices to maximize their potential winnings while risking their initial bet. The game combines elements of risk management, probability, and quick decision-making in a visually engaging format.
 
 ### Core Game Mechanics
