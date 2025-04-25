@@ -133,6 +133,7 @@ contract DeathRaceGame is ReentrancyGuard, Ownable {
      * @param gameSeedHash Hash of the actual game seed (used for listener correlation)
      * @param algoVersion The algorithm version for provable fairness
      * @param rows The array of tile counts per row
+     * @param deadline The latest timestamp this signature is valid for
      * @param serverSignature Signature from the server authorizing this game creation
      */
     function createGame(
@@ -140,8 +141,10 @@ contract DeathRaceGame is ReentrancyGuard, Ownable {
         bytes32 gameSeedHash,
         string calldata algoVersion,
         uint8[] calldata rows,
+        uint256 deadline,
         bytes calldata serverSignature
     ) external payable {
+        require(block.timestamp <= deadline, "Signature expired");
         // Use domain separation and abi.encode for signature
         bytes32 messageHash = keccak256(
             abi.encode(
@@ -151,7 +154,8 @@ contract DeathRaceGame is ReentrancyGuard, Ownable {
                 algoVersion,
                 rows,
                 msg.sender,
-                msg.value
+                msg.value,
+                deadline
             )
         );
         _verifyServerSignature(messageHash, serverSignature);
