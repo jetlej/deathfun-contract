@@ -117,7 +117,7 @@ contract DeathRaceGame is ReentrancyGuard, Ownable {
      * @dev Constructor sets the contract owner and initial server signer address
      */
     constructor() Ownable() { // Initialize Ownable (owner defaults to deployer)
-        gameCounter = 1; // Start from 1 rather than 0 for easier identification
+        gameCounter = 0; // Start from 0, increment before assignment
         serverSignerAddress = msg.sender; // Default to deployer, should be updated
         emit ServerSignerAddressUpdated(msg.sender);
     }
@@ -164,8 +164,8 @@ contract DeathRaceGame is ReentrancyGuard, Ownable {
             revert GameAlreadyExists(preliminaryGameId);
         }
 
-        uint256 onChainGameId = gameCounter;
         gameCounter += 1;
+        uint256 onChainGameId = gameCounter;
         preliminaryToOnChainId[preliminaryGameId] = onChainGameId;
 
         // Create game struct with all metadata
