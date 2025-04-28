@@ -25,6 +25,9 @@ contract DeathRaceGame is ReentrancyGuard, Ownable {
     /// @notice Counter for unique on-chain game IDs
     uint256 public gameCounter;
 
+    /// @notice Prefix used in messageHash for domain separation
+    string public messagePrefix;
+
     /// @notice Address authorized to sign parameters for critical actions (server backend)
     address public serverSignerAddress;
 
@@ -115,10 +118,12 @@ contract DeathRaceGame is ReentrancyGuard, Ownable {
 
     /**
      * @dev Constructor sets the contract owner and initial server signer address
+     * @param _messagePrefix The prefix used in messageHash for domain separation
      */
-    constructor() Ownable() { // Initialize Ownable (owner defaults to deployer)
+    constructor(string memory _messagePrefix) Ownable() { // Initialize Ownable (owner defaults to deployer)
         gameCounter = 0; // Start from 0, increment before assignment
         serverSignerAddress = msg.sender; // Default to deployer, should be updated
+        messagePrefix = _messagePrefix;
         emit ServerSignerAddressUpdated(msg.sender);
     }
 
@@ -148,7 +153,7 @@ contract DeathRaceGame is ReentrancyGuard, Ownable {
         // Use domain separation and abi.encode for signature
         bytes32 messageHash = keccak256(
             abi.encode(
-                "DeathRaceGame:createGame",
+                messagePrefix,
                 preliminaryGameId,
                 gameSeedHash,
                 algoVersion,

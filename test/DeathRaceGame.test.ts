@@ -1,12 +1,12 @@
-import * as hre from 'hardhat';
-import { expect } from 'chai';
-import { Deployer } from '@matterlabs/hardhat-zksync';
-import { Wallet, Provider, Contract } from 'zksync-ethers';
-import { vars } from 'hardhat/config';
-import { ethers } from 'ethers';
-import { LOCAL_RICH_WALLETS } from '../deploy/utils';
+import * as hre from "hardhat";
+import { expect } from "chai";
+import { Deployer } from "@matterlabs/hardhat-zksync";
+import { Wallet, Provider, Contract } from "zksync-ethers";
+import { vars } from "hardhat/config";
+import { ethers } from "ethers";
+import { LOCAL_RICH_WALLETS } from "../deploy/utils";
 
-describe('DeathRaceGame', function () {
+describe("DeathRaceGame", function () {
   // Increase timeout for zkSync tests
   this.timeout(60000);
 
@@ -16,15 +16,17 @@ describe('DeathRaceGame', function () {
   let provider: Provider;
   let serverSigner: Wallet; // Added for clarity, will use deployer
 
-  const betAmount = ethers.parseEther('0.01');
-  const minBetAmount = ethers.parseEther('0.001');
-  const preliminaryGameId = 'test-game-123';
-  const commitmentHash = '0x123456789abcdef'; // Placeholder, will be set by backend listener
+  const betAmount = ethers.parseEther("0.01");
+  const minBetAmount = ethers.parseEther("0.001");
+  const preliminaryGameId = "test-game-123";
+  const commitmentHash = "0x123456789abcdef"; // Placeholder, will be set by backend listener
   const selectedTiles = [1, 2, 3];
-  const gameSeedHash = ethers.keccak256(ethers.toUtf8Bytes('test-seed-value')); // Example seed hash
-  const gameSeed = ethers.keccak256(ethers.toUtf8Bytes('actual-test-seed-value')); // Example revealed seed - passed to backend, not contract
+  const gameSeedHash = ethers.keccak256(ethers.toUtf8Bytes("test-seed-value")); // Example seed hash
+  const gameSeed = ethers.keccak256(
+    ethers.toUtf8Bytes("actual-test-seed-value")
+  ); // Example revealed seed - passed to backend, not contract
 
-  const algoVersion = 'v1';
+  const algoVersion = "v1";
   const rows = [5, 5, 5, 5, 5]; // Example row config for tests
 
   // Helper to sign createGame parameters with domain separator and abi.encode
@@ -34,19 +36,30 @@ describe('DeathRaceGame', function () {
     algoVersion: string,
     rows: number[],
     player: string,
-    betAmount: bigint
+    betAmount: bigint,
+    deadline: bigint
   ) => {
     const abiCoder = ethers.AbiCoder.defaultAbiCoder();
     const encoded = abiCoder.encode(
-      ['string', 'string', 'bytes32', 'string', 'uint8[]', 'address', 'uint256'],
       [
-        'DeathRaceGame:createGame',
+        "string",
+        "string",
+        "bytes32",
+        "string",
+        "uint8[]",
+        "address",
+        "uint256",
+        "uint256",
+      ],
+      [
+        "DeathRaceGame:createGame",
         preliminaryGameId,
         gameSeedHash,
         algoVersion,
         rows,
         player,
         betAmount,
+        deadline,
       ]
     );
     const hash = ethers.keccak256(encoded);
@@ -70,9 +83,11 @@ describe('DeathRaceGame', function () {
   beforeEach(async function () {
     // Deploy the contract before each test
     const hardhatDeployer = new Deployer(hre, deployer);
-    const artifact = await hardhatDeployer.loadArtifact('DeathRaceGame');
+    const artifact = await hardhatDeployer.loadArtifact("DeathRaceGame");
     // The constructor now sets the owner and serverSignerAddress to deployer
-    deathRaceGame = await hardhatDeployer.deploy(artifact);
+    deathRaceGame = await hardhatDeployer.deploy(artifact, [
+      "DeathRaceGame:createGame",
+    ]);
     await deathRaceGame.waitForDeployment();
     // Explicitly set server signer address (optional as constructor does it, but good practice)
     // const setSignerTx = await (deathRaceGame as any).connect(deployer).setServerSignerAddress(await serverSigner.getAddress());
@@ -85,25 +100,37 @@ describe('DeathRaceGame', function () {
     );
   });
 
-  describe('Game Creation', function () {
-    it('Should allow a player to create a new game with a valid server signature', async function () {
+  describe("Game Creation", function () {
+    it("Should allow a player to create a new game with a valid server signature", async function () {
       const contractAsAny = deathRaceGame as any;
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
       const serverSignature = await signCreateGameParams(
         preliminaryGameId,
         gameSeedHash,
         algoVersion,
         rows,
         await player.getAddress(),
-        betAmount
+        betAmount,
+        deadline
       );
 
       const tx = await contractAsAny
         .connect(player)
-        .createGame(preliminaryGameId, gameSeedHash, algoVersion, rows, serverSignature, {
-          value: betAmount,
-        });
+        .createGame(
+          preliminaryGameId,
+          gameSeedHash,
+          algoVersion,
+          rows,
+          deadline,
+          serverSignature,
+          {
+            value: betAmount,
+          }
+        );
       await tx.wait();
-      const onChainGameId = await contractAsAny.getOnChainGameId(preliminaryGameId);
+      const onChainGameId = await contractAsAny.getOnChainGameId(
+        preliminaryGameId
+      );
 
       expect(Number(onChainGameId)).to.not.equal(0);
       const gameDetails = await contractAsAny.getGameDetails(onChainGameId);
@@ -114,21 +141,32 @@ describe('DeathRaceGame', function () {
       expect(gameDetails.rows.map((n: any) => Number(n))).to.deep.equal(rows);
     });
 
-    it('Should fail to create a game with an invalid server signature', async function () {
+    it("Should fail to create a game with an invalid server signature", async function () {
       const contractAsAny = deathRaceGame as any;
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
       const invalidSignature = await player.signMessage(
         ethers.getBytes(
           ethers.keccak256(
             ethers.AbiCoder.defaultAbiCoder().encode(
-              ['string', 'string', 'bytes32', 'string', 'uint8[]', 'address', 'uint256'],
               [
-                'DeathRaceGame:createGame',
+                "string",
+                "string",
+                "bytes32",
+                "string",
+                "uint8[]",
+                "address",
+                "uint256",
+                "uint256",
+              ],
+              [
+                "DeathRaceGame:createGame",
                 preliminaryGameId,
                 gameSeedHash,
                 algoVersion,
                 rows,
                 await player.getAddress(),
                 betAmount,
+                deadline,
               ]
             )
           )
@@ -138,35 +176,55 @@ describe('DeathRaceGame', function () {
       try {
         await contractAsAny
           .connect(player)
-          .createGame(preliminaryGameId, gameSeedHash, algoVersion, rows, invalidSignature, {
-            value: betAmount,
-          });
-        expect.fail('Transaction should have failed with InvalidServerSignature');
+          .createGame(
+            preliminaryGameId,
+            gameSeedHash,
+            algoVersion,
+            rows,
+            deadline,
+            invalidSignature,
+            {
+              value: betAmount,
+            }
+          );
+        expect.fail(
+          "Transaction should have failed with InvalidServerSignature"
+        );
       } catch (error: any) {
         // We expect a revert, check for the specific error if possible,
         // but Hardhat/ethers might wrap it. Check for revert existence.
-        expect(error.message).to.include('reverted');
+        expect(error.message).to.include("reverted");
         // Ideally check: expect(error.message).to.include('InvalidServerSignature');
         // but custom errors might not propagate well through the stack yet.
       }
     });
 
     // Other createGame failure tests (e.g., existing ID) should also include valid signatures now
-    it('Should fail to create a game with an existing preliminary ID', async function () {
+    it("Should fail to create a game with an existing preliminary ID", async function () {
       const contractAsAny = deathRaceGame as any;
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
       const serverSignature1 = await signCreateGameParams(
         preliminaryGameId,
         gameSeedHash,
         algoVersion,
         rows,
         await player.getAddress(),
-        betAmount
+        betAmount,
+        deadline
       );
       const tx = await contractAsAny
         .connect(player)
-        .createGame(preliminaryGameId, gameSeedHash, algoVersion, rows, serverSignature1, {
-          value: betAmount,
-        });
+        .createGame(
+          preliminaryGameId,
+          gameSeedHash,
+          algoVersion,
+          rows,
+          deadline,
+          serverSignature1,
+          {
+            value: betAmount,
+          }
+        );
       await tx.wait();
 
       const serverSignature2 = await signCreateGameParams(
@@ -175,45 +233,64 @@ describe('DeathRaceGame', function () {
         algoVersion,
         rows,
         await player.getAddress(),
-        betAmount
+        betAmount,
+        deadline
       );
       try {
         await contractAsAny
           .connect(player)
-          .createGame(preliminaryGameId, gameSeedHash, algoVersion, rows, serverSignature2, {
-            value: betAmount,
-          });
-        expect.fail('Transaction should have failed with GameAlreadyExists');
+          .createGame(
+            preliminaryGameId,
+            gameSeedHash,
+            algoVersion,
+            rows,
+            deadline,
+            serverSignature2,
+            {
+              value: betAmount,
+            }
+          );
+        expect.fail("Transaction should have failed with GameAlreadyExists");
       } catch (error: any) {
-        expect(error.message).to.include('reverted');
+        expect(error.message).to.include("reverted");
         // Ideally: expect(error.message).to.include('GameAlreadyExists');
       }
     });
   });
 
-  describe('Game Cash Out', function () {
+  describe("Game Cash Out", function () {
     let onChainGameId: ethers.BigNumberish;
     let contractAsAny: any;
 
     beforeEach(async function () {
       contractAsAny = deathRaceGame as any;
       // Fund the contract (needed for payouts)
-      const fundingAmount = ethers.parseEther('0.05');
-      const fundingGameId = 'funding-game-' + Date.now();
+      const fundingAmount = ethers.parseEther("0.05");
+      const fundingGameId = "funding-game-" + Date.now();
       const fundingGameSeedHash = ethers.ZeroHash;
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
       const fundingSignature = await signCreateGameParams(
         fundingGameId,
         fundingGameSeedHash,
         algoVersion,
         rows,
         await deployer.getAddress(),
-        fundingAmount
+        fundingAmount,
+        deadline
       );
       const fundTx = await contractAsAny
         .connect(deployer)
-        .createGame(fundingGameId, fundingGameSeedHash, algoVersion, rows, fundingSignature, {
-          value: fundingAmount,
-        });
+        .createGame(
+          fundingGameId,
+          fundingGameSeedHash,
+          algoVersion,
+          rows,
+          deadline,
+          fundingSignature,
+          {
+            value: fundingAmount,
+          }
+        );
       await fundTx.wait();
 
       // Create the actual game for the test using the player wallet
@@ -223,21 +300,34 @@ describe('DeathRaceGame', function () {
         algoVersion,
         rows,
         await player.getAddress(),
-        betAmount
+        betAmount,
+        deadline
       );
       const createTx = await contractAsAny
         .connect(player)
-        .createGame(preliminaryGameId, gameSeedHash, algoVersion, rows, serverSignature, {
-          value: betAmount,
-        });
+        .createGame(
+          preliminaryGameId,
+          gameSeedHash,
+          algoVersion,
+          rows,
+          deadline,
+          serverSignature,
+          {
+            value: betAmount,
+          }
+        );
       await createTx.wait();
       onChainGameId = await contractAsAny.getOnChainGameId(preliminaryGameId);
     });
 
-    it('Should allow the server signer to cash out a game', async function () {
+    it("Should allow the server signer to cash out a game", async function () {
       const payoutAmount = betAmount * BigInt(2);
-      const playerBalanceBefore = await provider.getBalance(await player.getAddress());
-      const serverBalanceBefore = await provider.getBalance(await serverSigner.getAddress());
+      const playerBalanceBefore = await provider.getBalance(
+        await player.getAddress()
+      );
+      const serverBalanceBefore = await provider.getBalance(
+        await serverSigner.getAddress()
+      );
 
       // No signature needed from server
       // const serverSignature = await signParams(
@@ -254,39 +344,53 @@ describe('DeathRaceGame', function () {
       const gasPrice = receipt?.gasPrice ?? BigInt(0);
       const serverGasCost = BigInt(gasUsed) * BigInt(gasPrice);
 
-      const playerBalanceAfter = await provider.getBalance(await player.getAddress());
-      const serverBalanceAfter = await provider.getBalance(await serverSigner.getAddress());
+      const playerBalanceAfter = await provider.getBalance(
+        await player.getAddress()
+      );
+      const serverBalanceAfter = await provider.getBalance(
+        await serverSigner.getAddress()
+      );
 
       // Player's balance should increase by payoutAmount
       expect(playerBalanceAfter).to.equal(playerBalanceBefore + payoutAmount);
 
       // Server's balance should decrease by approximately gasCost
       const expectedServerBalance = serverBalanceBefore - serverGasCost;
-      const serverBalanceAfterNum = Number(ethers.formatEther(serverBalanceAfter));
-      const expectedServerBalanceNum = Number(ethers.formatEther(expectedServerBalance));
+      const serverBalanceAfterNum = Number(
+        ethers.formatEther(serverBalanceAfter)
+      );
+      const expectedServerBalanceNum = Number(
+        ethers.formatEther(expectedServerBalance)
+      );
       const tolerance = 0.001; // Tolerance for gas calculation variations
       expect(serverBalanceAfterNum).to.be.closeTo(
         expectedServerBalanceNum,
         tolerance,
-        'Server signer balance incorrect after paying gas for cash out'
+        "Server signer balance incorrect after paying gas for cash out"
       );
 
       const gameDetails = await contractAsAny.getGameDetails(onChainGameId);
       expect(Number(gameDetails.status)).to.equal(1); // Won
-      expect(gameDetails.payoutAmount.toString()).to.equal(payoutAmount.toString());
-      expect(gameDetails.selectedTiles.map((n: any) => Number(n))).to.deep.equal(selectedTiles);
+      expect(gameDetails.payoutAmount.toString()).to.equal(
+        payoutAmount.toString()
+      );
+      expect(
+        gameDetails.selectedTiles.map((n: any) => Number(n))
+      ).to.deep.equal(selectedTiles);
     });
 
-    it('Should fail if the player tries to cash out directly', async function () {
+    it("Should fail if the player tries to cash out directly", async function () {
       const payoutAmount = betAmount * BigInt(2);
       // No server signature involved
       try {
         await contractAsAny
           .connect(player) // Player attempts cash out
           .cashOut(onChainGameId, payoutAmount, selectedTiles, gameSeed);
-        expect.fail('Transaction should have failed with Only server can cash out');
+        expect.fail(
+          "Transaction should have failed with Only server can cash out"
+        );
       } catch (error: any) {
-        expect(error.message).to.include('reverted');
+        expect(error.message).to.include("reverted");
         // Ideally check for the specific custom error message:
         // expect(error.message).to.include('Only server can cash out');
       }
@@ -294,7 +398,7 @@ describe('DeathRaceGame', function () {
 
     // Test checking 'NotGamePlayer' is removed/obsolete as server (non-player) is the caller now.
 
-    it('Should fail if server tries cashing out an already paid game', async function () {
+    it("Should fail if server tries cashing out an already paid game", async function () {
       const payoutAmount = betAmount * BigInt(2);
       // First cashout (by server)
       await contractAsAny
@@ -307,41 +411,51 @@ describe('DeathRaceGame', function () {
         await contractAsAny
           .connect(serverSigner)
           .cashOut(onChainGameId, payoutAmount, selectedTiles, gameSeed);
-        expect.fail('Transaction should have failed with GameNotActive');
+        expect.fail("Transaction should have failed with GameNotActive");
       } catch (error: any) {
-        expect(error.message).to.include('reverted');
+        expect(error.message).to.include("reverted");
         // Check specific error
         // expect(error.message).to.include('GameNotActive');
       }
     });
   });
 
-  describe('Mark Game as Lost', function () {
+  describe("Mark Game as Lost", function () {
     let onChainGameId: ethers.BigNumberish;
     let contractAsAny: any;
-    const actualGameSeed = ethers.id('some-random-seed-for-loss'); // Example seed as bytes32
+    const actualGameSeed = ethers.id("some-random-seed-for-loss"); // Example seed as bytes32
 
     beforeEach(async function () {
       contractAsAny = deathRaceGame as any;
       // Create game first
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
       const serverSignature = await signCreateGameParams(
         preliminaryGameId,
         gameSeedHash,
         algoVersion,
         rows,
         await player.getAddress(),
-        betAmount
+        betAmount,
+        deadline
       );
       const createTx = await contractAsAny
         .connect(player)
-        .createGame(preliminaryGameId, gameSeedHash, algoVersion, rows, serverSignature, {
-          value: betAmount,
-        });
+        .createGame(
+          preliminaryGameId,
+          gameSeedHash,
+          algoVersion,
+          rows,
+          deadline,
+          serverSignature,
+          {
+            value: betAmount,
+          }
+        );
       await createTx.wait();
       onChainGameId = await contractAsAny.getOnChainGameId(preliminaryGameId);
     });
 
-    it('Should allow the server signer to mark a game as lost', async function () {
+    it("Should allow the server signer to mark a game as lost", async function () {
       // No signature needed
       // const serverSignature = await signParams(...);
       await contractAsAny
@@ -350,21 +464,25 @@ describe('DeathRaceGame', function () {
 
       const gameDetails = await contractAsAny.getGameDetails(onChainGameId);
       expect(Number(gameDetails.status)).to.equal(2); // Lost
-      expect(gameDetails.selectedTiles.map((n: any) => Number(n))).to.deep.equal(selectedTiles);
+      expect(
+        gameDetails.selectedTiles.map((n: any) => Number(n))
+      ).to.deep.equal(selectedTiles);
       expect(gameDetails.gameSeed).to.equal(actualGameSeed); // Check seed
       expect(gameDetails.algoVersion).to.equal(algoVersion);
       expect(gameDetails.rows.map((n: any) => Number(n))).to.deep.equal(rows);
     });
 
-    it('Should fail if the player tries to mark the game as lost directly', async function () {
+    it("Should fail if the player tries to mark the game as lost directly", async function () {
       // No signature needed
       try {
         await contractAsAny
           .connect(player) // Player attempts
           .markGameAsLost(onChainGameId, selectedTiles, actualGameSeed);
-        expect.fail('Transaction should have failed with Only server can mark game lost');
+        expect.fail(
+          "Transaction should have failed with Only server can mark game lost"
+        );
       } catch (error: any) {
-        expect(error.message).to.include('reverted');
+        expect(error.message).to.include("reverted");
         // Ideally check specific error:
         // expect(error.message).to.include('Only server can mark game lost');
       }
@@ -372,7 +490,7 @@ describe('DeathRaceGame', function () {
 
     // Test checking 'NotGamePlayer' is removed/obsolete.
 
-    it('Should fail if server tries marking a non-active game as lost', async function () {
+    it("Should fail if server tries marking a non-active game as lost", async function () {
       // Mark as lost first (by server)
       await contractAsAny
         .connect(serverSigner)
@@ -384,16 +502,16 @@ describe('DeathRaceGame', function () {
         await contractAsAny
           .connect(serverSigner)
           .markGameAsLost(onChainGameId, selectedTiles, actualGameSeed);
-        expect.fail('Transaction should have failed with GameNotActive');
+        expect.fail("Transaction should have failed with GameNotActive");
       } catch (error: any) {
-        expect(error.message).to.include('reverted');
+        expect(error.message).to.include("reverted");
         // Check specific error
         // expect(error.message).to.include('GameNotActive');
       }
     });
   });
 
-  describe('Admin Functions', function () {
+  describe("Admin Functions", function () {
     // Admin functions (updateHouseFee, withdrawFunds, setServerSignerAddress)
     // are protected by Ownable and don't need server signatures themselves.
     // Tests for these can remain largely unchanged, but we add a test for setServerSignerAddress.
@@ -403,46 +521,68 @@ describe('DeathRaceGame', function () {
       contractAsAny = deathRaceGame as any;
     });
 
-    it('Should allow the owner to update the server signer address', async function () {
+    it("Should allow the owner to update the server signer address", async function () {
       const newSigner = player; // Use player wallet as the new signer for test
-      await contractAsAny.connect(deployer).setServerSignerAddress(await newSigner.getAddress());
+      await contractAsAny
+        .connect(deployer)
+        .setServerSignerAddress(await newSigner.getAddress());
       const updatedSigner = await contractAsAny.serverSignerAddress();
       expect(updatedSigner).to.equal(await newSigner.getAddress());
     });
 
-    it('Should fail if non-owner tries to update the server signer address', async function () {
+    it("Should fail if non-owner tries to update the server signer address", async function () {
       const newSigner = player;
       try {
-        await contractAsAny.connect(player).setServerSignerAddress(await newSigner.getAddress());
-        expect.fail('Transaction should have failed with OwnableUnauthorizedAccount');
+        await contractAsAny
+          .connect(player)
+          .setServerSignerAddress(await newSigner.getAddress());
+        expect.fail(
+          "Transaction should have failed with OwnableUnauthorizedAccount"
+        );
       } catch (error: any) {
-        expect(error.message).to.include('reverted');
+        expect(error.message).to.include("reverted");
         // Ideally: expect(error.message).to.include('OwnableUnauthorizedAccount');
       }
     });
 
     // Keep existing admin tests (updateHouseFee, withdrawFunds)
-    it('Should allow the owner to withdraw funds', async function () {
+    it("Should allow the owner to withdraw funds", async function () {
       // Need to fund the contract first using createGame with a valid server sig
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
       const serverSignature = await signCreateGameParams(
-        'funding-game-1',
+        "funding-game-1",
         gameSeedHash,
         algoVersion,
         rows,
         await player.getAddress(),
-        betAmount
+        betAmount,
+        deadline
       );
       const tx = await contractAsAny
         .connect(player) // Player creates the game
-        .createGame('funding-game-1', gameSeedHash, algoVersion, rows, serverSignature, {
-          value: betAmount,
-        });
+        .createGame(
+          "funding-game-1",
+          gameSeedHash,
+          algoVersion,
+          rows,
+          deadline,
+          serverSignature,
+          {
+            value: betAmount,
+          }
+        );
       await tx.wait();
 
-      const ownerBalanceBefore = await provider.getBalance(await deployer.getAddress());
+      const ownerBalanceBefore = await provider.getBalance(
+        await deployer.getAddress()
+      );
       const recipientAddress = await player.getAddress();
-      const recipientBalanceBefore = await provider.getBalance(recipientAddress);
-      const contractBalanceBefore = await provider.getBalance(await deathRaceGame.getAddress());
+      const recipientBalanceBefore = await provider.getBalance(
+        recipientAddress
+      );
+      const contractBalanceBefore = await provider.getBalance(
+        await deathRaceGame.getAddress()
+      );
 
       expect(Number(contractBalanceBefore)).to.be.greaterThan(0);
 
@@ -454,9 +594,13 @@ describe('DeathRaceGame', function () {
       const gasPrice = receipt?.gasPrice ?? BigInt(0);
       const gasCost = BigInt(gasUsed) * BigInt(gasPrice);
 
-      const ownerBalanceAfter = await provider.getBalance(await deployer.getAddress());
+      const ownerBalanceAfter = await provider.getBalance(
+        await deployer.getAddress()
+      );
       const recipientBalanceAfter = await provider.getBalance(recipientAddress);
-      const contractBalanceAfter = await provider.getBalance(await deathRaceGame.getAddress());
+      const contractBalanceAfter = await provider.getBalance(
+        await deathRaceGame.getAddress()
+      );
 
       // Contract balance might not be exactly 0 if funding game is still there
       // Check that the owner received the withdrawn amount (approximately)
@@ -465,52 +609,70 @@ describe('DeathRaceGame', function () {
       );
 
       // Check recipient balance increased
-      expect(recipientBalanceAfter).to.equal(recipientBalanceBefore + betAmount);
+      expect(recipientBalanceAfter).to.equal(
+        recipientBalanceBefore + betAmount
+      );
 
       // Check owner balance decreased only by gas
       const expectedOwnerBalance = ownerBalanceBefore - gasCost;
-      const ownerBalanceAfterNum = Number(ethers.formatEther(ownerBalanceAfter));
-      const expectedOwnerBalanceNum = Number(ethers.formatEther(expectedOwnerBalance));
+      const ownerBalanceAfterNum = Number(
+        ethers.formatEther(ownerBalanceAfter)
+      );
+      const expectedOwnerBalanceNum = Number(
+        ethers.formatEther(expectedOwnerBalance)
+      );
       const tolerance = 0.001; // Tolerance for gas calculation variations
       expect(ownerBalanceAfterNum).to.be.closeTo(
         expectedOwnerBalanceNum,
         tolerance,
-        'Owner balance incorrect after paying gas for withdrawal'
+        "Owner balance incorrect after paying gas for withdrawal"
       );
     });
 
     // ... other existing admin failure tests remain the same ...
-    it('Should fail when a non-owner tries to withdraw funds', async function () {
+    it("Should fail when a non-owner tries to withdraw funds", async function () {
       // Fund first
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
       const serverSignature = await signCreateGameParams(
-        'funding-game-2',
+        "funding-game-2",
         gameSeedHash,
         algoVersion,
         rows,
         await player.getAddress(),
-        betAmount
+        betAmount,
+        deadline
       );
       const tx = await contractAsAny
         .connect(player)
-        .createGame('funding-game-2', gameSeedHash, algoVersion, rows, serverSignature, {
-          value: betAmount,
-        });
+        .createGame(
+          "funding-game-2",
+          gameSeedHash,
+          algoVersion,
+          rows,
+          deadline,
+          serverSignature,
+          {
+            value: betAmount,
+          }
+        );
       await tx.wait();
 
       const recipientAddress = await deployer.getAddress(); // Choose any recipient for the test
 
       try {
-        await contractAsAny.connect(player).withdrawFunds(betAmount, recipientAddress);
-        expect.fail('Transaction should have failed');
+        await contractAsAny
+          .connect(player)
+          .withdrawFunds(betAmount, recipientAddress);
+        expect.fail("Transaction should have failed");
       } catch (error: any) {
-        expect(error.message).to.include('reverted');
+        expect(error.message).to.include("reverted");
       }
     });
   });
 
-  describe('Treasury Deposits', function () {
-    it('Should accept direct Ether deposits via receive()', async function () {
-      const depositAmount = ethers.parseEther('0.1');
+  describe("Treasury Deposits", function () {
+    it("Should accept direct Ether deposits via receive()", async function () {
+      const depositAmount = ethers.parseEther("0.1");
       const contractAddress = await deathRaceGame.getAddress();
       const balanceBefore = await provider.getBalance(contractAddress);
 
@@ -526,7 +688,7 @@ describe('DeathRaceGame', function () {
 
       expect(balanceAfter.toString()).to.equal(
         expectedBalance.toString(),
-        'Contract balance did not increase correctly after deposit'
+        "Contract balance did not increase correctly after deposit"
       );
     });
   });
